@@ -9,7 +9,7 @@ import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from "@clerk/n
 export default function Home() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
-  const [qrList, setQrList] = useState([]);
+  const [qrList, setQrList] = useState<any[]>([]);
   
   // 2. Pobieramy dane zalogowanego użytkownika
   const { user, isLoaded } = useUser();
@@ -26,7 +26,7 @@ export default function Home() {
       .order('created_at', { ascending: false });
 
     if (error) console.log('Błąd:', error);
-    else setQrList(data);
+    else setQrList(data || []);
   };
 
   // Uruchom pobieranie, gdy zmieni się użytkownik (np. po zalogowaniu)
