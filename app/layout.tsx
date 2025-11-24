@@ -1,6 +1,6 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { ClerkProvider } from "@clerk/nextjs"; // 1. Importujemy dostawcę
+import { ClerkProvider } from "@clerk/nextjs";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -9,9 +9,9 @@ export const metadata = {
   description: "Generator QR",
 };
 
-export default function RootLayout({ children }) {
+// Tutaj była zmiana: dodaliśmy ": { children: React.ReactNode }"
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // 2. Owijamy całe HTML w ClerkProvider
     <ClerkProvider>
       <html lang="pl">
         <body className={inter.className}>{children}</body>
