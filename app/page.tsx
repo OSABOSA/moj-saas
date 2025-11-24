@@ -3,66 +3,18 @@
 import { useState, useEffect } from "react";
 import QRCode from "react-qr-code";
 import { supabase } from "../lib/supabase";
-// 1. Importujemy hooki z Clerka
 import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from "@clerk/nextjs";
 
 export default function Home() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
-  const [qrList, setQrList] = useState<any[]>([]);
+  const [qrList, setQrList] = useState<any[]>([]); // Lista kodów
   
-  // 2. Pobieramy dane zalogowanego użytkownika
   const { user, isLoaded } = useUser();
 
-  // Funkcja pobierania listy
-  const fetchQrCodes = async () => {
-    // Jeśli użytkownik nie jest jeszcze załadowany lub niezalogowany - nic nie pobieraj
-    if (!isLoaded || !user) return;
-
-    const { data, error } = await supabase
-      .from('qrcodes')
-      .select('*')
-      .eq('user_id', user.id) // <--- KLUCZOWA ZMIANA: Filtrujemy po ID użytkownika
-      .order('created_at', { ascending: false });
-
-    if (error) console.log('Błąd:', error);
-    else setQrList(data || []);
-  };
-
-  // Uruchom pobieranie, gdy zmieni się użytkownik (np. po zalogowaniu)
-  useEffect(() => {
-    fetchQrCodes();
-  }, [user, isLoaded]);
-
-  const saveQRCode = async () => {
-    if (!text) return alert("Wpisz coś!");
-    if (!user) return alert("Musisz być zalogowany!"); // Zabezpieczenie
-
-    setLoading(true);
-    
-    const { error } = await supabase
-      .from('qrcodes')
-      .insert([
-        { 
-          url: text, 
-          user_id: user.id // <--- KLUCZOWA ZMIANA: Zapisujemy ID właściciela
-        }
-      ]);
-
-    setLoading(false);
-
-    if (error) {
-      alert("Błąd: " + error.message);
-    } else {
-      fetchQrCodes(); // Odśwież listę
-      setText(""); 
-    }
-  };
-
-  // Funkcja kupowania
+  // 1. Funkcja do obsługi płatności (NOWOŚĆ)
   const handleCheckout = async () => {
     try {
-      setLoading(true);
       // Pukamy do naszego backendu
       const response = await fetch("/api/checkout", {
         method: "POST",
@@ -73,14 +25,57 @@ export default function Home() {
       // Jeśli backend zwrócił URL do Stripe, to tam idziemy
       if (data.url) {
         window.location.href = data.url;
+      } else {
+        alert("Błąd: Nie otrzymano linku do płatności");
       }
     } catch (error) {
       console.error("Błąd płatności:", error);
       alert("Coś poszło nie tak z płatnością.");
-      setLoading(false);
     }
   };
-  
+
+  const fetchQrCodes = async () => {
+    if (!isLoaded || !user) return;
+
+    const { data, error } = await supabase
+      .from('qrcodes')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) console.log('Błąd:', error);
+    else setQrList(data || []);
+  };
+
+  useEffect(() => {
+    fetchQrCodes();
+  }, [user, isLoaded]);
+
+  const saveQRCode = async () => {
+    if (!text) return alert("Wpisz coś!");
+    if (!user) return alert("Musisz być zalogowany!");
+
+    setLoading(true);
+    
+    const { error } = await supabase
+      .from('qrcodes')
+      .insert([
+        { 
+          url: text, 
+          user_id: user.id 
+        }
+      ]);
+
+    setLoading(false);
+
+    if (error) {
+      alert("Błąd: " + error.message);
+    } else {
+      fetchQrCodes();
+      setText(""); 
+    }
+  };
+
   return (
     <main className="flex min-h-screen flex-col items-center bg-gray-50 p-8">
       
@@ -104,6 +99,17 @@ export default function Home() {
       {/* Główna sekcja - widoczna tylko dla zalogowanych */}
       <SignedIn>
         <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md flex flex-col items-center gap-6 mb-10">
+          
+          {/* 2. Przycisk Płatności (NOWOŚĆ) */}
+          <button 
+            onClick={handleCheckout}
+            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:shadow-lg transition-all transform hover:scale-105"
+          >
+            💎 Kup Wersję PRO (20 PLN)
+          </button>
+
+          <hr className="w-full border-gray-100" />
+
           <h1 className="text-2xl font-bold text-gray-800">Twój Generator</h1>
           
           <input
@@ -161,7 +167,6 @@ export default function Home() {
         </div>
       </SignedIn>
 
-      {/* Komunikat dla niezalogowanych */}
       <SignedOut>
         <div className="text-center mt-20">
           <h2 className="text-3xl font-bold text-gray-800 mb-4">Zaloguj się, aby tworzyć kody</h2>
