@@ -59,6 +59,28 @@ export default function Home() {
     }
   };
 
+  // Funkcja kupowania
+  const handleCheckout = async () => {
+    try {
+      setLoading(true);
+      // Pukamy do naszego backendu
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+      });
+
+      const data = await response.json();
+
+      // Jeśli backend zwrócił URL do Stripe, to tam idziemy
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (error) {
+      console.error("Błąd płatności:", error);
+      alert("Coś poszło nie tak z płatnością.");
+      setLoading(false);
+    }
+  };
+  
   return (
     <main className="flex min-h-screen flex-col items-center bg-gray-50 p-8">
       
