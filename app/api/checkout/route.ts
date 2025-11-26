@@ -1,44 +1,71 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { currentUser } from "@clerk/nextjs/server";
+import { createClient } from "@supabase/supabase-js"; // 1. Dodajemy klienta bazy
 
-// Inicjalizacja Stripe przy użyciu Tajnego Klucza
+// Inicjalizacja Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2023-10-16" as any, 
+  apiVersion: "2023-10-16" as any,
 });
+
+// 2. Inicjalizacja Supabase "na szybko" wewnątrz API
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function POST() {
   try {
-    // 1. Sprawdzamy, kto kupuje (pobieramy usera z Clerka)
     const user = await currentUser();
-    
     if (!user) {
       return new NextResponse("Musisz być zalogowany", { status: 401 });
     }
 
-    // 2. Tworzymy sesję płatności w Stripe
+    // --- NOWOŚĆ: NAPRAWA PUSTEJ TABELI PROFILES ---
+    
+    // A. Sprawdzamy czy user już jest w tabeli profiles
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+
+    // B. Jeśli go nie ma, tworzymy go TERAZ
+    if (!profile) {
+      console.log("Tworzę nowy profil dla:", user.id);
+      const { error } = await supabase
+        .from('profiles')
+        .insert([
+          { 
+            user_id: user.id, 
+            is_pro: false,
+            email: user.emailAddresses[0]?.emailAddress // Opcjonalnie zapisz email
+          }
+        ]);
+      
+      if (error) {
+        console.error("Błąd tworzenia profilu:", error);
+        // Nie przerywamy, bo chcemy pozwolić mu zapłacić, ale warto wiedzieć
+      }
+    }
+    // ---------------------------------------------
+
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card", "blik"], // Możesz dodać BLIK jeśli chcesz
+      payment_method_types: ["card"],
       line_items: [
         {
-          price: process.env.STRIPE_PRICE_ID, // Tu wchodzi Twoje ID ceny
+          price: process.env.STRIPE_PRICE_ID,
           quantity: 1,
         },
       ],
-      mode: "payment", // Płatność jednorazowa
-      
-      // Gdzie odesłać klienta po sukcesie lub anulowaniu?
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}?success=1`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}?canceled=1`,
-      
-      // WAŻNE: Tutaj przyklejamy ID użytkownika do transakcji. 
-      // Dzięki temu potem (w Webhooku) będziemy wiedzieć, KOMU włączyć wersję PRO.
+      mode: "payment",
+      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://' + process.env.VERCEL_URL}?success=1`,
+      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://' + process.env.VERCEL_URL}?canceled=1`,
       metadata: {
         userId: user.id,
       },
     });
 
-    // 3. Zwracamy link do płatności frontendowi
     return NextResponse.json({ url: session.url });
 
   } catch (error) {
