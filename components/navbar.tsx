@@ -6,7 +6,7 @@ import { Menu } from "lucide-react";
 import { useState } from "react";
 
 export function Navbar() {
-  const [location] = usePathname();
+  const location = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
