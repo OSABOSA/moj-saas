@@ -52,13 +52,14 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        IconLeft: ({ className, ...props }) => (
-          <ChevronLeft className={cn("h-4 w-4", className)} {...props} />
-        ),
-        IconRight: ({ className, ...props }) => (
-          <ChevronRight className={cn("h-4 w-4", className)} {...props} />
-        ),
-      }}
+          // Obsługa wersji 8 (Stara)
+          IconLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4" />,
+          IconRight: ({ ...props }) => <ChevronRight className="h-4 w-4" />,
+          
+          // Obsługa wersji 9 (Nowa)
+          ChevronLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4" />,
+          ChevronRight: ({ ...props }) => <ChevronRight className="h-4 w-4" />,
+        } as any}
       {...props}
     />
   )
