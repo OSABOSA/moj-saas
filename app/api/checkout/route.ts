@@ -23,9 +23,10 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard?success=true`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/pricing?canceled=true`,
+      success_url: `http://localhost:3000/dashboard?success=true`,
+      cancel_url: `http://localhost:3000/pricing?canceled=true`,
       client_reference_id: user.id,
+      expand: ["line_items"],
     });
 
     return NextResponse.json({ url: session.url });

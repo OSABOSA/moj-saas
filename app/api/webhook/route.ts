@@ -61,7 +61,49 @@ export async function POST(req: Request) {
 
   switch (event.type) {
     case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session;
+      const session = event.data.object as Stripe.Checkout.Session & {
+        line_items: Stripe.LineItem[]
+      };
+      
+      const userId = session.client_reference_id;
+      if (!userId) {
+        console.error("User ID not found in checkout session.");
+        break;
+      }
+
+      const lineItems = await stripe.checkout.sessions.listLineItems(session.id);
+      const priceId = lineItems.data[0].price?.id;
+
+      let userProfileUpdate: any = {};
+
+      switch (priceId) {
+        case process.env.NEXT_PUBLIC_PRICE_PRO:
+          userProfileUpdate = { is_pro: true, has_music_bot: true, has_watch_bot: true, has_manager_bot: true };
+          break;
+        case process.env.NEXT_PUBLIC_PRICE_MUSIC:
+          userProfileUpdate = { has_music_bot: true };
+          break;
+        case process.env.NEXT_PUBLIC_PRICE_WATCH:
+          userProfileUpdate = { has_watch_bot: true };
+          break;
+        case process.env.NEXT_PUBLIC_PRICE_SERVER:
+          userProfileUpdate = { has_manager_bot: true };
+          break;
+      }
+
+      if (Object.keys(userProfileUpdate).length > 0) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update(userProfileUpdate)
+          .eq("id", userId);
+
+        if (profileError) {
+          console.error(`Supabase profile update error for user ${userId}:`, profileError);
+        } else {
+          console.log(`User ${userId} profile updated with:`, userProfileUpdate);
+        }
+      }
+
       if (session.mode === 'subscription') {
         const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
         await stripe.customers.update(subscription.customer as string, {
@@ -69,7 +111,6 @@ export async function POST(req: Request) {
         });
         await upsertSubscription(subscription);
       } else if (session.mode === 'payment') {
-        const userId = session.client_reference_id;
         const customerId = session.customer;
         
         const { error } = await supabase
