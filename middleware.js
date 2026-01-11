@@ -1,12 +1,25 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-export default clerkMiddleware();
+// Tutaj definiujemy trasy publiczne (dostępne bez logowania)
+// Dodajemy '/api/webhooks(.*)', żeby Clerk nie blokował naszych webhooków
+const isPublicRoute = createRouteMatcher([
+  '/sign-in(.*)',
+  '/sign-up(.*)',
+  '/api/webhooks(.*)'
+]);
+
+export default clerkMiddleware(async (auth, req) => {
+  // Jeśli trasa NIE jest publiczna, wymagaj zalogowania
+  if (!isPublicRoute(req)) {
+    await auth.protect();
+  }
+});
 
 export const config = {
   matcher: [
-    // Pomiń pliki statyczne i obrazy Next.js
+    // Skip Next.js internals and all static files, unless found in search params
     '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    // Zawsze uruchamiaj dla tras API
+    // Always run for API routes
     '/(api|trpc)(.*)',
   ],
 };
