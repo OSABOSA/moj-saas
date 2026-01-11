@@ -1,16 +1,20 @@
 "use client";
-
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { PricingCard } from "./pricing-card";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+} from "@/components/ui/carousel";
 import { SiVisa, SiMastercard } from "react-icons/si";
-
 export function PricingSection() {
-  const router = useRouter();
   const [loadingId, setLoadingId] = useState<string | null>(null);
-
-  // Funkcja płatności ze Stripe
-  const handleCheckout = async (priceId: string, mode: "payment" | "subscription") => {
+  const isMobile = useIsMobile();
+  const handleCheckout = async (
+    priceId: string,
+    mode: "payment" | "subscription"
+  ) => {
     try {
       setLoadingId(priceId);
       const response = await fetch("/api/checkout", {
@@ -26,8 +30,6 @@ export function PricingSection() {
       setLoadingId(null);
     }
   };
-
-  // Konfiguracja 4 planów zgodnie z Twoim Stripe
   const plans = [
     {
       name: "Music BOT",
@@ -41,7 +43,7 @@ export function PricingSection() {
       ],
       buttonText: "Wybierz Music",
       highlighted: false,
-      priceId: process.env.NEXT_PUBLIC_PRICE_MUSIC, 
+      priceId: process.env.NEXT_PUBLIC_PRICE_MUSIC,
       mode: "subscription" as "subscription",
     },
     {
@@ -70,14 +72,14 @@ export function PricingSection() {
         "Dedykowany panel",
       ],
       buttonText: "Wybierz Watch",
-      highlighted: true, // Możesz wyróżnić ten lub inny
+      highlighted: true,
       priceId: process.env.NEXT_PUBLIC_PRICE_WATCH,
       mode: "subscription" as "subscription",
     },
     {
       name: "Wersja PRO",
       price: "20 zł",
-      period: "jednorazowo", // Zgodnie z poprzednim kodem, lub /mies. jeśli to subskrypcja
+      period: "jednorazowo",
       features: [
         "Dostęp do wszystkich botów",
         "Priorytetowe wsparcie",
@@ -90,7 +92,27 @@ export function PricingSection() {
       mode: "payment" as "payment",
     },
   ];
-
+  const renderPriceCard = (plan: any) => (
+    <PricingCard
+      key={plan.name}
+      name={plan.name}
+      price={plan.price}
+      period={plan.period}
+      features={plan.features}
+      highlighted={plan.highlighted}
+      buttonText={
+        loadingId === plan.priceId ? "Przetwarzanie..." : plan.buttonText
+      }
+      onButtonClick={() => {
+        if (plan.priceId) {
+          handleCheckout(plan.priceId, plan.mode);
+        } else {
+          console.error("Brak Price ID dla:", plan.name);
+          alert("Konfiguracja płatności nie jest gotowa.");
+        }
+      }}
+    />
+  );
   return (
     <section className="bg-background py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -103,31 +125,26 @@ export function PricingSection() {
           </p>
         </div>
 
-        {/* Zmieniony GRID: na dużych ekranach (xl) są 4 kolumny, na średnich (md) 2 kolumny */}
-        <div className="mt-16 grid gap-8 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
-          {plans.map((plan) => (
-            <PricingCard
-              key={plan.name}
-              name={plan.name}
-              price={plan.price}
-              period={plan.period}
-              features={plan.features}
-              highlighted={plan.highlighted}
-              // Obsługa stanu ładowania przycisku
-              buttonText={loadingId === plan.priceId ? "Przetwarzanie..." : plan.buttonText}
-              // Wykonaj akcję płatności
-              onButtonClick={() => {
-                if (plan.priceId) {
-                  handleCheckout(plan.priceId, plan.mode);
-                } else {
-                  console.error("Brak Price ID dla:", plan.name);
-                  alert("Konfiguracja płatności nie jest gotowa.");
-                }
-              }}
-            />
-          ))}
-        </div>
-
+        {isMobile ? (
+          <Carousel
+            opts={{
+              align: "start",
+            }}
+            className="w-full max-w-sm mx-auto mt-16"
+          >
+            <CarouselContent>
+              {plans.map((plan, index) => (
+                <CarouselItem key={index} className="md:basis-1/2 lg:basis-1/3">
+                  <div className="p-1">{renderPriceCard(plan)}</div>
+                </CarouselItem>
+              ))}
+            </CarouselContent>
+          </Carousel>
+        ) : (
+          <div className="mt-16 grid gap-8 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+            {plans.map(renderPriceCard)}
+          </div>
+        )}
         <div className="mt-16 text-center">
           <p className="text-sm text-muted-foreground">
             Wszystkie ceny w PLN • Obsługujemy polskie metody płatności
@@ -140,7 +157,8 @@ export function PricingSection() {
             </div>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            * Subskrypcje wymagają podpięcia karty. Płatności jednorazowe dostępne przez BLIK/P24.
+            * Subskrypcje wymagają podpięcia karty. Płatności jednorazowe
+            dostępne przez BLIK/P24.
           </p>
         </div>
       </div>
