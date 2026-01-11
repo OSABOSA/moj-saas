@@ -23,8 +23,8 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
-      success_url: `http://localhost:3000/dashboard?success=true`,
-      cancel_url: `http://localhost:3000/pricing?canceled=true`,
+      success_url: "https://saas.osabosa.pl/dashboard?success=true",
+      cancel_url: "https://saas.osabosa.pl/pricing?canceled=true",
       client_reference_id: user.id,
       expand: ["line_items"],
     });
