@@ -49,10 +49,9 @@ export async function POST(req: Request) {
     const primaryEmail = email_addresses[0]?.email_address;
     const today = new Date().toISOString().split('T')[0];
 
-    console.log(`Próba zapisu/aktualizacji usera: ${username}`);
+    console.log(`--- [KROK 1] START: Próba zapisu usera: ${username} ---`);
 
-    // 1. UPSERT USERA (Wstaw lub zaktualizuj jeśli istnieje)
-    // Ważne: onConflict bazuje na kolumnie 'clerk_id', która musi być UNIQUE w bazie
+    // 1. UPSERT USERA
     const { data: userData, error: userError } = await supabase
       .from('users')
       .upsert({
@@ -60,18 +59,20 @@ export async function POST(req: Request) {
         email: primaryEmail,
         username: username || primaryEmail?.split('@')[0],
         discord_id: discordId
-      }, { onConflict: 'clerk_id' }) // Jeśli clerk_id istnieje, nie wywalaj błędu
+      }, { onConflict: 'clerk_id' })
       .select()
       .single();
 
     if (userError) {
-      console.error('BŁĄD UPSERT USERA:', userError);
+      console.error('--- [KROK 1] BŁĄD: Nie udało się zapisać usera ---', userError);
       return new Response(JSON.stringify(userError), { status: 500 });
     }
 
-    console.log('User OK (ID):', userData.id);
+    console.log('--- [KROK 1] SUKCES: User ID z bazy:', userData.id, '---');
 
-    // 2. SPRAWDŹ CZY SUBSKRYPCJA JUŻ ISTNIEJE
+    // 2. TWORZENIE SUBSKRYPCJI
+    console.log(`--- [KROK 2] Sprawdzam czy user ${userData.id} ma subskrypcję ---`);
+    
     const { data: existingSub } = await supabase
         .from('subscriptions')
         .select('id')
@@ -79,25 +80,28 @@ export async function POST(req: Request) {
         .single();
 
     if (!existingSub) {
-        console.log('Tworzę nową subskrypcję...');
-        const { error: subError } = await supabase
+        console.log('--- [KROK 2] Brak subskrypcji. PRÓBA UTWORZENIA... ---');
+        
+        // ZMIANA TUTAJ: 'FREE' zamiast 'free'
+        const { data: subData, error: subError } = await supabase
             .from('subscriptions')
             .insert({
-            user_id: userData.id,
-            is_subscribed: false,
-            subscribe_type: 'free',
-            subscribe_start_time: today,
-            subscribe_end_time: null
-            });
+                user_id: userData.id,
+                is_subscribed: false,
+                subscribe_type: 'FREE', // <--- WIELKIE LITERY (zgodnie z Twoją bazą)
+                subscribe_start_time: today,
+                subscribe_end_time: null
+            })
+            .select();
 
         if (subError) {
-            console.error('BŁĄD ZAPISU SUBSKRYPCJI:', subError);
-            // Zwracamy 500 żeby Clerk ponowił próbę w razie błędu bazy
+            console.error('--- [KROK 2] BŁĄD KRYTYCZNY SUBSKRYPCJI: ---', subError);
             return new Response(JSON.stringify(subError), { status: 500 });
         }
-        console.log('Subskrypcja utworzona pomyślnie.');
+        
+        console.log('--- [KROK 2] SUKCES: Subskrypcja utworzona! ---', subData);
     } else {
-        console.log('Subskrypcja już istnieje, pomijam.');
+        console.log('--- [KROK 2] INFO: Subskrypcja już istnieje. ID:', existingSub.id, '---');
     }
   }
 
