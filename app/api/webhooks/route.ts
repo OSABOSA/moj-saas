@@ -4,7 +4,7 @@ import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2023-10-16" as any,
+  apiVersion: "2024-06-20", 
 });
 
 const supabase = createClient(
@@ -12,28 +12,17 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function upsertSubscription(subscription: Stripe.Subscription) {
-  const customer = await stripe.customers.retrieve(subscription.customer as string);
-  const userId = (customer as any).metadata.userId || subscription.metadata.userId;
-
-  const { error } = await supabase
-    .from("subscriptions")
-    .upsert({
-      stripe_subscription_id: subscription.id,
-      user_id: userId,
-      is_subscribed: ["active", "trialing"].includes(subscription.status),
-      subscribe_start_time: new Date(subscription.current_period_start * 1000).toISOString(),
-      subscribe_end_time: new Date(subscription.current_period_end * 1000).toISOString(),
-      subscribe_type: "standard", // or derive from price/product
-      stripe_customer_id: subscription.customer,
-    });
-    
-  if (error) {
-    console.error("Supabase upsert error:", error);
-  } else {
-    console.log(`Subscription ${subscription.id} for user ${userId} upserted.`);
-  }
-}
+// --- KONFIGURACJA MAPOWANIA Z TWOICH ZMIENNYCH ---
+// Używamy zmiennych środowiskowych, które podałeś
+// Wykrzyknik (!) na końcu mówi TypeScriptowi: "Spokojnie, ta zmienna na pewno istnieje"
+const PRICE_MAP: Record<string, string> = {
+  [process.env.NEXT_PUBLIC_PRICE_MUSIC!]: "FREE",        // Music BOT
+  [process.env.NEXT_PUBLIC_PRICE_SERVER!]: "PRO",       // Server Manager
+  [process.env.NEXT_PUBLIC_PRICE_PRO!]: "ENTERPRISE",   // Wersja PRO
+  
+  // Jeśli chcesz obsłużyć też WATCH, odkomentuj i przypisz typ:
+  // [process.env.NEXT_PUBLIC_PRICE_WATCH!]: "JAKIS_TYP",
+};
 
 export async function POST(req: Request) {
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
@@ -61,95 +50,64 @@ export async function POST(req: Request) {
 
   switch (event.type) {
     case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session & {
-        line_items: Stripe.LineItem[]
-      };
+      const session = event.data.object as Stripe.Checkout.Session;
       
-      const userId = session.client_reference_id;
+      // 1. Pobieramy userId z metadata (wysłane z api/checkout/route.ts)
+      const userId = session.metadata?.userId || session.client_reference_id;
+
       if (!userId) {
-        console.error("User ID not found in checkout session.");
-        break;
+        console.error("User ID not found in session metadata.");
+        return new NextResponse("Missing User ID", { status: 200 }); 
       }
 
+      // 2. Pobieramy zakupione produkty
       const lineItems = await stripe.checkout.sessions.listLineItems(session.id);
-      const priceId = lineItems.data[0].price?.id;
+      const priceId = lineItems.data[0]?.price?.id;
 
-      let userProfileUpdate: any = {};
-
-      switch (priceId) {
-        case process.env.NEXT_PUBLIC_PRICE_PRO:
-          userProfileUpdate = { is_pro: true, has_music_bot: true, has_watch_bot: true, has_manager_bot: true };
-          break;
-        case process.env.NEXT_PUBLIC_PRICE_MUSIC:
-          userProfileUpdate = { has_music_bot: true };
-          break;
-        case process.env.NEXT_PUBLIC_PRICE_WATCH:
-          userProfileUpdate = { has_watch_bot: true };
-          break;
-        case process.env.NEXT_PUBLIC_PRICE_SERVER:
-          userProfileUpdate = { has_manager_bot: true };
-          break;
+      if (!priceId) {
+        console.error("Price ID not found.");
+        return new NextResponse("Missing Price ID", { status: 200 });
       }
 
-      if (Object.keys(userProfileUpdate).length > 0) {
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update(userProfileUpdate)
-          .eq("id", userId);
+      // 3. Mapujemy cenę na typ subskrypcji
+      // Teraz szuka klucza odpowiadającego wartości zmiennej środowiskowej
+      const planType = PRICE_MAP[priceId];
 
-        if (profileError) {
-          console.error(`Supabase profile update error for user ${userId}:`, profileError);
-        } else {
-          console.log(`User ${userId} profile updated with:`, userProfileUpdate);
-        }
+      if (!planType) {
+        console.error(`Nieznany priceId: ${priceId}. Sprawdź zmienne env.`);
+        // To ważne logowanie - jeśli tutaj wpadnie, znaczy że ID w Stripe nie pasuje do tego w Vercel
+        console.log("Dostępne mapowanie:", PRICE_MAP); 
+        return new NextResponse("Unknown Price ID", { status: 200 });
       }
 
-      if (session.mode === 'subscription') {
-        const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
-        await stripe.customers.update(subscription.customer as string, {
-          metadata: { userId: session.client_reference_id }
-        });
-        await upsertSubscription(subscription);
-      } else if (session.mode === 'payment') {
-        const customerId = session.customer;
-        
-        const { error } = await supabase
-          .from("subscriptions")
-          .insert({
-            user_id: userId,
-            is_subscribed: true,
-            subscribe_start_time: new Date().toISOString(),
-            subscribe_end_time: new Date(new Date().setFullYear(new Date().getFullYear() + 100)).toISOString(),
-            subscribe_type: "lifetime",
-            stripe_customer_id: customerId,
-          });
+      // 4. Obliczamy daty (+1 miesiąc)
+      const now = new Date();
+      const oneMonthLater = new Date();
+      oneMonthLater.setMonth(now.getMonth() + 1);
 
-        if (error) {
-          console.error("Supabase insert error for one-time payment:", error);
-        } else {
-          console.log(`One-time payment for user ${userId} recorded.`);
-        }
-      }
-      break;
-    }
-    case 'customer.subscription.updated': {
-      const subscription = event.data.object as Stripe.Subscription;
-      await upsertSubscription(subscription);
-      break;
-    }
-    case 'customer.subscription.deleted': {
-      const subscription = event.data.object as Stripe.Subscription;
+      console.log(`Aktualizacja usera ${userId} na plan ${planType} (do ${oneMonthLater.toISOString()})`);
+
+      // 5. Aktualizujemy Supabase
       const { error } = await supabase
-        .from('subscriptions')
-        .update({ is_subscribed: false })
-        .eq('stripe_subscription_id', subscription.id);
+        .from("subscriptions")
+        .update({
+          is_subscribed: true,
+          subscribe_type: planType,
+          subscribe_start_time: now.toISOString(),
+          subscribe_end_time: oneMonthLater.toISOString(),
+        })
+        .eq("user_id", userId);
+
       if (error) {
-        console.error("Supabase update error on delete:", error);
+        console.error("Supabase update error:", error);
+        return new NextResponse("Database Error", { status: 500 });
       } else {
-        console.log(`Subscription ${subscription.id} marked as deleted.`);
+        console.log("Supabase updated successfully!");
       }
+
       break;
     }
+
     default:
       console.log(`Unhandled event type: ${event.type}`);
   }
