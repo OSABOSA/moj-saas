@@ -1,109 +1,134 @@
-import { Webhook } from 'svix'
-import { headers } from 'next/headers'
-import { WebhookEvent } from '@clerk/nextjs/server'
-import { createClient } from '@supabase/supabase-js'
+import { headers } from "next/headers";
+import { NextResponse } from "next/server";
+import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
+
+// 1. Inicjalizacja Stripe z obejściem błędu wersji (as any)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-06-20" as any, 
+});
+
+// 2. Inicjalizacja Supabase (Admin - Service Role)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// 3. Mapowanie Twoich zmiennych ENV na typy w bazie
+const PRICE_MAP: Record<string, string> = {
+  [process.env.NEXT_PUBLIC_PRICE_MUSIC!]: "FREE",        // Music BOT
+  [process.env.NEXT_PUBLIC_PRICE_SERVER!]: "PRO",       // Server Manager
+  [process.env.NEXT_PUBLIC_PRICE_PRO!]: "ENTERPRISE",   // Wersja PRO
+  
+  // Opcjonalnie dodaj WATCH jeśli ma zmieniać typ:
+  // [process.env.NEXT_PUBLIC_PRICE_WATCH!]: "PRO",
+};
 
 export async function POST(req: Request) {
-  const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
-  if (!WEBHOOK_SECRET) {
-    throw new Error('Please add CLERK_WEBHOOK_SECRET from Clerk Dashboard to .env or .env.local')
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    console.error("BRAK ZMIENNEJ: STRIPE_WEBHOOK_SECRET");
+    return new NextResponse("Server Config Error", { status: 500 });
   }
 
-  const headerPayload = await headers();
-  const svix_id = headerPayload.get("svix-id");
-  const svix_timestamp = headerPayload.get("svix-timestamp");
-  const svix_signature = headerPayload.get("svix-signature");
+  const body = await req.text();
+  const signature = (await headers()).get("Stripe-Signature") as string;
 
-  if (!svix_id || !svix_timestamp || !svix_signature) {
-    return new Response('Error occured -- no svix headers', { status: 400 })
-  }
+  let event: Stripe.Event;
 
-  const payload = await req.json()
-  const body = JSON.stringify(payload)
-  const wh = new Webhook(WEBHOOK_SECRET)
-  let evt: WebhookEvent
-
+  // 4. Weryfikacja podpisu (Security)
   try {
-    evt = wh.verify(body, {
-      "svix-id": svix_id,
-      "svix-timestamp": svix_timestamp,
-      "svix-signature": svix_signature,
-    }) as WebhookEvent
-  } catch (err) {
-    console.error('Error verifying webhook:', err);
-    return new Response('Error occured', { status: 400 })
+    event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (error: any) {
+    console.error("Błąd weryfikacji podpisu Stripe:", error.message);
+    return new NextResponse(`Webhook Error: ${error.message}`, { status: 400 });
   }
+  
+  console.log("Otrzymano zdarzenie Stripe:", event.type);
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  // Funkcja pomocnicza do aktualizacji bazy
+  const updateUserSubscription = async (userId: string, type: string, endDate: Date) => {
+    const { error } = await supabase.from("subscriptions").update({
+      is_subscribed: true,
+      subscribe_type: type,
+      subscribe_start_time: new Date().toISOString(),
+      subscribe_end_time: endDate.toISOString(),
+    }).eq("user_id", userId);
 
-  const eventType = evt.type
+    if (error) console.error("Błąd Supabase:", error);
+    else console.log(`SUKCES: Zaktualizowano usera ${userId} na plan ${type}`);
+  };
 
-  if (eventType === 'user.created') {
-    const { id, email_addresses, username, external_accounts } = evt.data;
-    
-    const discordAccount = external_accounts?.find((acc) => acc.provider === 'oauth_discord');
-    const discordId = discordAccount ? discordAccount.provider_user_id : null;
-    const primaryEmail = email_addresses[0]?.email_address;
-    const today = new Date().toISOString().split('T')[0];
+  switch (event.type) {
+    // --- SCENARIUSZ A: Pierwsza płatność (sukces sesji checkout) ---
+    case 'checkout.session.completed': {
+      const session = event.data.object as Stripe.Checkout.Session;
+      
+      // Pobieramy ID usera z metadata (to wysłaliśmy z api/checkout)
+      const userId = session.metadata?.userId || session.client_reference_id;
 
-    console.log(`--- [KROK 1] START: Próba zapisu usera: ${username} ---`);
+      if (!userId) {
+        console.error("Brak User ID w sesji.");
+        return new NextResponse("Missing User ID", { status: 200 });
+      }
 
-    // 1. UPSERT USERA
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .upsert({
-        clerk_id: id,
-        email: primaryEmail,
-        username: username || primaryEmail?.split('@')[0],
-        discord_id: discordId
-      }, { onConflict: 'clerk_id' })
-      .select()
-      .single();
+      // Pobieramy co kupił
+      const lineItems = await stripe.checkout.sessions.listLineItems(session.id);
+      const priceId = lineItems.data[0]?.price?.id;
+      
+      // Mapujemy cenę na typ (FREE/PRO/ENTERPRISE)
+      // Jeśli cena nie pasuje do mapy, ustawiamy domyślnie 'FREE' lub logujemy błąd
+      const planType = PRICE_MAP[priceId!] || 'FREE';
 
-    if (userError) {
-      console.error('--- [KROK 1] BŁĄD: Nie udało się zapisać usera ---', userError);
-      return new Response(JSON.stringify(userError), { status: 500 });
+      // Ustawiamy czas trwania: Teraz + 1 Miesiąc
+      const oneMonthLater = new Date();
+      oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
+
+      await updateUserSubscription(userId, planType, oneMonthLater);
+      break;
     }
 
-    console.log('--- [KROK 1] SUKCES: User ID z bazy:', userData.id, '---');
+    // --- SCENARIUSZ B: Odnowienie subskrypcji (płatność cykliczna) ---
+    // (Zadziała tylko jeśli włączysz mode: 'subscription')
+    case 'invoice.payment_succeeded': {
+      const invoice = event.data.object as Stripe.Invoice;
+      
+      // Jeśli to płatność za subskrypcję
+      if (invoice.subscription) {
+        const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
+        const userId = subscription.metadata?.userId; // Tu userId musi być w metadata subskrypcji
+        const priceId = invoice.lines.data[0]?.price?.id;
+        const planType = PRICE_MAP[priceId!] || 'FREE';
 
-    // 2. TWORZENIE SUBSKRYPCJI
-    console.log(`--- [KROK 2] Sprawdzam czy user ${userData.id} ma subskrypcję ---`);
-    
-    const { data: existingSub } = await supabase
-        .from('subscriptions')
-        .select('id')
-        .eq('user_id', userData.id)
-        .single();
+        // Data końca brana bezpośrednio ze Stripe
+        const periodEnd = new Date(subscription.current_period_end * 1000);
 
-    if (!existingSub) {
-        console.log('--- [KROK 2] Brak subskrypcji. PRÓBA UTWORZENIA... ---');
-        
-        // ZMIANA TUTAJ: 'FREE' zamiast 'free'
-        const { data: subData, error: subError } = await supabase
-            .from('subscriptions')
-            .insert({
-                user_id: userData.id,
-                is_subscribed: false,
-                subscribe_type: 'FREE', // <--- WIELKIE LITERY (zgodnie z Twoją bazą)
-                subscribe_start_time: today,
-                subscribe_end_time: null
-            })
-            .select();
-
-        if (subError) {
-            console.error('--- [KROK 2] BŁĄD KRYTYCZNY SUBSKRYPCJI: ---', subError);
-            return new Response(JSON.stringify(subError), { status: 500 });
+        if (userId) {
+          await updateUserSubscription(userId, planType, periodEnd);
         }
-        
-        console.log('--- [KROK 2] SUKCES: Subskrypcja utworzona! ---', subData);
-    } else {
-        console.log('--- [KROK 2] INFO: Subskrypcja już istnieje. ID:', existingSub.id, '---');
+      }
+      break;
+    }
+
+    // --- SCENARIUSZ C: Anulowanie subskrypcji ---
+    case 'customer.subscription.deleted': {
+      const subscription = event.data.object as Stripe.Subscription;
+      const userId = subscription.metadata?.userId;
+
+      if (userId) {
+        console.log(`Subskrypcja anulowana dla user: ${userId}`);
+        await supabase.from("subscriptions").update({
+          is_subscribed: false,
+          subscribe_type: 'FREE', // Powrót do planu darmowego
+          subscribe_end_time: new Date().toISOString() // Koniec teraz
+        }).eq("user_id", userId);
+      }
+      break;
     }
   }
 
-  return new Response('Webhook processed', { status: 200 })
+  return new NextResponse("OK", { status: 200 });
 }
