@@ -76,7 +76,8 @@ export async function POST(req: Request) {
 
     if (userError) {
       console.error('BŁĄD ZAPISU USERA:', userError);
-      return new Response('Error inserting user', { status: 500 });
+      // 👇 ZMIANA: Zwracamy dokładny opis błędu z bazy
+      return new Response(JSON.stringify(userError), { status: 500 });
     }
 
     console.log('User zapisany, ID:', newUser.id);
