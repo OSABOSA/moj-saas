@@ -4,14 +4,11 @@ import { WebhookEvent } from '@clerk/nextjs/server'
 import { createClient } from '@supabase/supabase-js'
 
 export async function POST(req: Request) {
-  // 1. Sprawdzenie sekretu
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
   if (!WEBHOOK_SECRET) {
-    console.error('Brak CLERK_WEBHOOK_SECRET')
     throw new Error('Please add CLERK_WEBHOOK_SECRET from Clerk Dashboard to .env or .env.local')
   }
 
-  // 2. Weryfikacja nagłówków (Next.js 15 fix)
   const headerPayload = await headers();
   const svix_id = headerPayload.get("svix-id");
   const svix_timestamp = headerPayload.get("svix-timestamp");
@@ -37,11 +34,9 @@ export async function POST(req: Request) {
     return new Response('Error occured', { status: 400 })
   }
 
-  // 3. Połączenie z Supabase (Jako Admin/Service Role)
-  // UWAGA: Tu musi być SUPABASE_SERVICE_ROLE_KEY, nie ANON_KEY!
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY! 
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
   const eventType = evt.type
@@ -49,57 +44,60 @@ export async function POST(req: Request) {
   if (eventType === 'user.created') {
     const { id, email_addresses, username, external_accounts } = evt.data;
     
-    // Pobieramy Discord ID jeśli istnieje
     const discordAccount = external_accounts?.find((acc) => acc.provider === 'oauth_discord');
     const discordId = discordAccount ? discordAccount.provider_user_id : null;
-    
     const primaryEmail = email_addresses[0]?.email_address;
-    
-    // Pobieramy dzisiejszą datę w formacie YYYY-MM-DD (dla pola typu 'date')
     const today = new Date().toISOString().split('T')[0];
 
-    console.log(`Próba zapisu usera: ${username}, Discord: ${discordId}`);
+    console.log(`Próba zapisu/aktualizacji usera: ${username}`);
 
-    // A. Zapis do tabeli 'users'
-    // Mapujemy dane dokładnie pod Twoje kolumny ze screenshota
-    const { data: newUser, error: userError } = await supabase
+    // 1. UPSERT USERA (Wstaw lub zaktualizuj jeśli istnieje)
+    // Ważne: onConflict bazuje na kolumnie 'clerk_id', która musi być UNIQUE w bazie
+    const { data: userData, error: userError } = await supabase
       .from('users')
-      .insert({
-        clerk_id: id,            // To pole dodaliśmy w SQL
+      .upsert({
+        clerk_id: id,
         email: primaryEmail,
         username: username || primaryEmail?.split('@')[0],
         discord_id: discordId
-        // id: generuje się samo (uuid)
-      })
+      }, { onConflict: 'clerk_id' }) // Jeśli clerk_id istnieje, nie wywalaj błędu
       .select()
       .single();
 
     if (userError) {
-      console.error('BŁĄD ZAPISU USERA:', userError);
-      // 👇 ZMIANA: Zwracamy dokładny opis błędu z bazy
+      console.error('BŁĄD UPSERT USERA:', userError);
       return new Response(JSON.stringify(userError), { status: 500 });
     }
 
-    console.log('User zapisany, ID:', newUser.id);
+    console.log('User OK (ID):', userData.id);
 
-    // B. Zapis do tabeli 'subscriptions'
-    if (newUser) {
-      const { error: subError } = await supabase
+    // 2. SPRAWDŹ CZY SUBSKRYPCJA JUŻ ISTNIEJE
+    const { data: existingSub } = await supabase
         .from('subscriptions')
-        .insert({
-          user_id: newUser.id,     // UUID z tabeli users
-          is_subscribed: false,    //
-          subscribe_type: 'free',  //
-          subscribe_start_time: today, // Format daty
-          subscribe_end_time: null // Brak końca subskrypcji
-        });
+        .select('id')
+        .eq('user_id', userData.id)
+        .single();
 
-      if (subError) {
-        console.error('BŁĄD ZAPISU SUBSKRYPCJI:', subError);
-        // Nie zwracamy błędu 500, bo user już jest stworzony, najwyżej subskrypcję doda się ręcznie
-      } else {
-        console.log('Subskrypcja FREE utworzona.');
-      }
+    if (!existingSub) {
+        console.log('Tworzę nową subskrypcję...');
+        const { error: subError } = await supabase
+            .from('subscriptions')
+            .insert({
+            user_id: userData.id,
+            is_subscribed: false,
+            subscribe_type: 'free',
+            subscribe_start_time: today,
+            subscribe_end_time: null
+            });
+
+        if (subError) {
+            console.error('BŁĄD ZAPISU SUBSKRYPCJI:', subError);
+            // Zwracamy 500 żeby Clerk ponowił próbę w razie błędu bazy
+            return new Response(JSON.stringify(subError), { status: 500 });
+        }
+        console.log('Subskrypcja utworzona pomyślnie.');
+    } else {
+        console.log('Subskrypcja już istnieje, pomijam.');
     }
   }
 
