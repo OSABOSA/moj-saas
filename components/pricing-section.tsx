@@ -33,18 +33,19 @@ export function PricingSection() {
   const plans = [
     {
       name: "Music BOT",
-      price: "5 zł",
-      period: "/mies.",
+      price: "Darmowy",
+      period: "",
       features: [
         "Wysoka jakość dźwięku",
         "Brak reklam",
         "Nielimitowane playlisty",
         "Wsparcie 24/7",
       ],
-      buttonText: "Wybierz Music",
+      buttonText: "Kliknij tutaj",
       highlighted: false,
-      priceId: process.env.NEXT_PUBLIC_PRICE_MUSIC,
-      mode: "subscription" as "subscription",
+      priceId: null,
+      mode: "free" as "free",
+      isFreePlan: true,
     },
     {
       name: "Server Manager",
@@ -89,7 +90,10 @@ export function PricingSection() {
         loadingId === plan.priceId ? "Przetwarzanie..." : plan.buttonText
       }
       onButtonClick={() => {
-        if (plan.priceId) {
+        if (plan.isFreePlan) {
+          // Placeholder link do przepisu na szarlotke
+          window.open("https://www.kuchnia-domowa.pl/przepisy/965-szarlotka-klasyczna", "_blank");
+        } else if (plan.priceId) {
           handleCheckout(plan.priceId, plan.mode);
         } else {
           console.error("Brak Price ID dla:", plan.name);
