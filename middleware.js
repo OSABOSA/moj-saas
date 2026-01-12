@@ -3,6 +3,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // Tutaj definiujemy trasy publiczne (dostępne bez logowania)
 // Dodajemy '/api/webhooks(.*)', żeby Clerk nie blokował naszych webhooków
 const isPublicRoute = createRouteMatcher([
+  '/',
+  '/pricing',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/webhooks(.*)'
