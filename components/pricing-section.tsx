@@ -62,21 +62,6 @@ export function PricingSection() {
       mode: "subscription" as "subscription",
     },
     {
-      name: "Watch Together",
-      price: "15 zł",
-      period: "/mies.",
-      features: [
-        "Oglądanie YouTube/Twitch",
-        "Synchronizacja video",
-        "Jakość HD",
-        "Dedykowany panel",
-      ],
-      buttonText: "Wybierz Watch",
-      highlighted: true,
-      priceId: process.env.NEXT_PUBLIC_PRICE_WATCH,
-      mode: "subscription" as "subscription",
-    },
-    {
       name: "Wersja PRO",
       price: "20 zł",
       period: "jednorazowo",

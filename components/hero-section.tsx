@@ -27,13 +27,18 @@ export function HeroSection() {
 
         <div className="flex flex-col sm:flex-row justify-center gap-4">
           <Button size="lg" className="h-12 px-8 text-lg gap-2" asChild>
+            <Link href="https://discord.com/oauth2/authorize?client_id=1440040082269667519" target="_blank">
+              Dodaj Bota <Bot size={18} />
+            </Link>
+          </Button>
+          <Button size="lg" variant="outline" className="h-12 px-8 text-lg gap-2" asChild>
             <Link href="/pricing">
-              Zobacz Boty <ArrowRight size={18} />
+              Zobacz Ceny <ArrowRight size={18} />
             </Link>
           </Button>
           <Button size="lg" variant="outline" className="h-12 px-8 text-lg gap-2" asChild>
             <Link href="/dashboard">
-              <Bot size={18} /> Panel Sterowania
+              Panel Sterowania
             </Link>
           </Button>
         </div>
