@@ -10,7 +10,7 @@ export function Footer() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
                 <span className="text-sm font-bold text-primary-foreground">C</span>
               </div>
-              <span className="font-display text-lg font-bold">ClickBot</span>
+              <span className="font-display text-lg font-bold">ASMO</span>
             </div>
             <p className="mt-4 text-sm text-muted-foreground">
               Professional Discord automation for modern teams.
@@ -71,7 +71,7 @@ export function Footer() {
         </div>
 
         <div className="mt-8 border-t pt-8 text-center text-sm text-muted-foreground">
-          © 2024 ClickBot. All rights reserved.
+          © 2024 ASMO. All rights reserved.
         </div>
       </div>
     </footer>

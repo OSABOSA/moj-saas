@@ -16,7 +16,7 @@ export function DemoSection() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="text-center">
           <h2 className="font-display text-3xl font-bold sm:text-4xl">
-            See ClickBot in Action
+            See ASMO in Action
           </h2>
           <p className="mt-4 text-lg text-muted-foreground">
             Interactive demo of Discord bot configuration and control
