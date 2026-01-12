@@ -18,7 +18,7 @@ const supabase = createClient(
 const PRICE_MAP: Record<string, string> = {
   [process.env.NEXT_PUBLIC_PRICE_MUSIC!]: "FREE",
   [process.env.NEXT_PUBLIC_PRICE_SERVER!]: "PRO",
-  [process.env.NEXT_PUBLIC_PRICE_PRO!]: "ENTERPRISE",
+  [process.env.NEXT_PUBLIC_PRICE_PRO!]: "ENTERPRICE",
 };
 
 export async function POST(req: Request) {

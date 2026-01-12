@@ -56,11 +56,11 @@ export default function DashboardPage() {
             planName: type,
             is_subscribed: data.is_subscribed,
             features: {
-              is_pro: type === 'ENTERPRISE', 
+              is_pro: type === 'ENTERPRICE', 
               // Music Bot jest teraz dostępny dla każdego (nawet FREE)
               has_music_bot: true, 
-              has_manager_bot: type === 'PRO' || type === 'ENTERPRISE', 
-              has_watch_bot: type === 'ENTERPRISE', 
+              has_manager_bot: type === 'PRO' || type === 'ENTERPRICE', 
+              has_watch_bot: type === 'ENTERPRICE', 
             }
           });
         }
@@ -115,7 +115,7 @@ export default function DashboardPage() {
     { time: "3 hours ago", action: "New member verify", server: "Main Community" },
   ];
 
-  const displayPlanName = subData?.planName === 'ENTERPRISE' ? 'PRO Bundle' : (subData?.planName || 'Free');
+  const displayPlanName = subData?.planName === 'ENTERPRICE' ? 'PRO Bundle' : (subData?.planName || 'Free');
   // Uznajemy, że konto jest aktywne, bo ma darmowy plan Music Bot
   const isActive = true; 
 
