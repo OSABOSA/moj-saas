@@ -3,54 +3,97 @@
 import { useEffect, useState } from "react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { StatCard } from "@/components/stat-card"; // <--- NOWY IMPORT
-import { MousePointerClick, Server, Clock, Zap, Settings, Shield, Music, MonitorPlay } from "lucide-react";
+import { StatCard } from "@/components/stat-card";
+import { MousePointerClick, Server, Clock, Zap, Settings } from "lucide-react";
 import { SignedIn, SignedOut, RedirectToSignIn, useUser } from "@clerk/nextjs";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 
-type UserProfile = {
-  is_pro: boolean;
-  has_music_bot: boolean;
-  has_watch_bot: boolean;
-  has_manager_bot: boolean;
+// Definicja stanu Dashboardu
+type UserSubscriptionState = {
+  planName: string;      // np. "Free", "Pro", "Enterprise"
+  is_subscribed: boolean;
+  features: {
+    is_pro: boolean;     // Czy to najwyższy plan?
+    has_music_bot: boolean;
+    has_watch_bot: boolean;
+    has_manager_bot: boolean;
+  }
 };
 
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [subData, setSubData] = useState<UserSubscriptionState | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchProfile() {
+    async function fetchSubscription() {
       if (!user) return;
       try {
+        // 1. ZMIANA: Pobieramy z tabeli 'subscriptions' zamiast 'profiles'
+        // Pobieramy user_id z tabeli users na podstawie clerk_id, żeby mieć pewność
+        const { data: userData } = await supabase
+            .from('users')
+            .select('id')
+            .eq('clerk_id', user.id)
+            .single();
+
+        if (!userData) return;
+
         const { data, error } = await supabase
-          .from('profiles')
+          .from('subscriptions')
           .select('*')
-          .eq('user_id', user.id)
+          .eq('user_id', userData.id) // Używamy UUID z bazy
           .single();
 
         if (!error && data) {
-          setProfile(data);
+          // 2. LOGIKA MAPOWANIA: Tłumaczymy typ subskrypcji na funkcje
+          // FREE -> Music Bot
+          // PRO -> Server Manager
+          // ENTERPRISE -> Wszystko (Wersja PRO)
+          
+          const type = data.subscribe_type; 
+          
+          setSubData({
+            planName: type,
+            is_subscribed: data.is_subscribed,
+            features: {
+              // 'ENTERPRISE' to Twoja "Wersja PRO"
+              is_pro: type === 'ENTERPRISE', 
+              
+              // Logika dostępności botów w zależności od planu
+              // Zakładam, że wyższe plany zawierają niższe, lub są rozdzielne.
+              // Dostosuj to wg uznania:
+              
+              // Music Bot dostępny we FREE i ENTERPRISE
+              has_music_bot: type === 'FREE' || type === 'ENTERPRISE', 
+              
+              // Manager dostępny w PRO i ENTERPRISE
+              has_manager_bot: type === 'PRO' || type === 'ENTERPRISE', 
+              
+              // Watch Bot dostępny np. tylko w ENTERPRISE (lub dodaj logikę)
+              has_watch_bot: type === 'ENTERPRISE', 
+            }
+          });
         }
       } catch (err) {
-        console.error("Błąd:", err);
+        console.error("Błąd pobierania subskrypcji:", err);
       } finally {
         setLoading(false);
       }
     }
 
-    if (isLoaded && user) fetchProfile();
+    if (isLoaded && user) fetchSubscription();
   }, [user, isLoaded]);
 
+  // Obliczamy aktywne boty na podstawie stanu
   const activeBotsCount = [
-    profile?.has_music_bot,
-    profile?.has_watch_bot,
-    profile?.has_manager_bot
+    subData?.features.has_music_bot,
+    subData?.features.has_watch_bot,
+    subData?.features.has_manager_bot
   ].filter(Boolean).length;
 
   const stats = [
@@ -68,9 +111,9 @@ export default function DashboardPage() {
     },
     { 
       title: "Server Actions", 
-      value: profile?.is_pro ? "Unlimited" : "Limited", 
+      value: subData?.features.is_pro ? "Unlimited" : "Limited", 
       icon: Zap, 
-      trend: profile?.is_pro ? "Pro Plan" : "Free Tier" 
+      trend: subData?.planName || "Free Tier" 
     },
     { 
       title: "Commands Used", 
@@ -87,8 +130,9 @@ export default function DashboardPage() {
     { time: "3 hours ago", action: "New member verify", server: "Main Community" },
   ];
 
-  const planName = profile?.is_pro ? "Pro Bundle" : (activeBotsCount > 0 ? "Starter" : "Free");
-  const isActive = activeBotsCount > 0 || profile?.is_pro;
+  // Wyświetlana nazwa planu
+  const displayPlanName = subData?.planName === 'ENTERPRISE' ? 'PRO Bundle' : (subData?.planName || 'Free');
+  const isActive = subData?.is_subscribed;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-background">
@@ -119,7 +163,7 @@ export default function DashboardPage() {
                     variant={isActive ? "default" : "secondary"} 
                     className="px-3 py-1 text-sm"
                   >
-                    {planName} Plan
+                    {displayPlanName}
                   </Badge>
                   <Badge 
                     variant="outline"
@@ -131,7 +175,7 @@ export default function DashboardPage() {
               )}
             </div>
 
-            {!loading && !isActive && (
+            {!loading && !subData?.features.is_pro && (
               <Card className="mb-8 border-primary/20 bg-primary/5">
                 <CardContent className="flex flex-col sm:flex-row items-center justify-between p-6 gap-4">
                   <div>
@@ -147,7 +191,6 @@ export default function DashboardPage() {
               </Card>
             )}
 
-            {/* UŻYCIE TWOJEGO KOMPONENTU STATCARD */}
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {stats.map((stat) => (
                 <StatCard 
