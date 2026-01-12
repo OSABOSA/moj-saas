@@ -12,12 +12,14 @@ import { SignedIn, SignedOut, RedirectToSignIn, useUser } from "@clerk/nextjs";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 
-// Definicja stanu Dashboardu
+// Pobieramy link z env
+const DISCORD_INVITE_URL = process.env.NEXT_PUBLIC_DISCORD_INVITE_URL || "#";
+
 type UserSubscriptionState = {
-  planName: string;      // np. "Free", "Pro", "Enterprise"
+  planName: string;
   is_subscribed: boolean;
   features: {
-    is_pro: boolean;     // Czy to najwyższy plan?
+    is_pro: boolean;
     has_music_bot: boolean;
     has_watch_bot: boolean;
     has_manager_bot: boolean;
@@ -33,8 +35,6 @@ export default function DashboardPage() {
     async function fetchSubscription() {
       if (!user) return;
       try {
-        // 1. ZMIANA: Pobieramy z tabeli 'subscriptions' zamiast 'profiles'
-        // Pobieramy user_id z tabeli users na podstawie clerk_id, żeby mieć pewność
         const { data: userData } = await supabase
             .from('users')
             .select('id')
@@ -46,35 +46,20 @@ export default function DashboardPage() {
         const { data, error } = await supabase
           .from('subscriptions')
           .select('*')
-          .eq('user_id', userData.id) // Używamy UUID z bazy
+          .eq('user_id', userData.id)
           .single();
 
         if (!error && data) {
-          // 2. LOGIKA MAPOWANIA: Tłumaczymy typ subskrypcji na funkcje
-          // FREE -> Music Bot
-          // PRO -> Server Manager
-          // ENTERPRISE -> Wszystko (Wersja PRO)
-          
           const type = data.subscribe_type; 
           
           setSubData({
             planName: type,
             is_subscribed: data.is_subscribed,
             features: {
-              // 'ENTERPRISE' to Twoja "Wersja PRO"
               is_pro: type === 'ENTERPRISE', 
-              
-              // Logika dostępności botów w zależności od planu
-              // Zakładam, że wyższe plany zawierają niższe, lub są rozdzielne.
-              // Dostosuj to wg uznania:
-              
-              // Music Bot dostępny we FREE i ENTERPRISE
-              has_music_bot: type === 'FREE' || type === 'ENTERPRISE', 
-              
-              // Manager dostępny w PRO i ENTERPRISE
+              // Music Bot jest teraz dostępny dla każdego (nawet FREE)
+              has_music_bot: true, 
               has_manager_bot: type === 'PRO' || type === 'ENTERPRISE', 
-              
-              // Watch Bot dostępny np. tylko w ENTERPRISE (lub dodaj logikę)
               has_watch_bot: type === 'ENTERPRISE', 
             }
           });
@@ -89,9 +74,9 @@ export default function DashboardPage() {
     if (isLoaded && user) fetchSubscription();
   }, [user, isLoaded]);
 
-  // Obliczamy aktywne boty na podstawie stanu
+  // Obliczamy aktywne boty (teraz Music Bot jest zawsze dostępny)
   const activeBotsCount = [
-    subData?.features.has_music_bot,
+    true, // Music bot zawsze aktywny
     subData?.features.has_watch_bot,
     subData?.features.has_manager_bot
   ].filter(Boolean).length;
@@ -130,9 +115,9 @@ export default function DashboardPage() {
     { time: "3 hours ago", action: "New member verify", server: "Main Community" },
   ];
 
-  // Wyświetlana nazwa planu
   const displayPlanName = subData?.planName === 'ENTERPRISE' ? 'PRO Bundle' : (subData?.planName || 'Free');
-  const isActive = subData?.is_subscribed;
+  // Uznajemy, że konto jest aktywne, bo ma darmowy plan Music Bot
+  const isActive = true; 
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-background">
@@ -160,36 +145,20 @@ export default function DashboardPage() {
               ) : (
                 <div className="flex items-center gap-2">
                   <Badge 
-                    variant={isActive ? "default" : "secondary"} 
+                    variant="default" 
                     className="px-3 py-1 text-sm"
                   >
                     {displayPlanName}
                   </Badge>
                   <Badge 
                     variant="outline"
-                    className={`px-3 py-1 text-sm ${isActive ? "text-green-600 border-green-600" : "text-slate-500"}`}
+                    className="px-3 py-1 text-sm text-green-600 border-green-600"
                   >
-                    {isActive ? "Active" : "Inactive"}
+                    Active
                   </Badge>
                 </div>
               )}
             </div>
-
-            {!loading && !subData?.features.is_pro && (
-              <Card className="mb-8 border-primary/20 bg-primary/5">
-                <CardContent className="flex flex-col sm:flex-row items-center justify-between p-6 gap-4">
-                  <div>
-                    <h3 className="font-semibold text-lg text-primary">Unlock the full potential</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Get access to premium music quality, 4K streaming, and server protection.
-                    </p>
-                  </div>
-                  <Button asChild size="lg">
-                    <Link href="/pricing">View Pricing</Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
 
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {stats.map((stat) => (
@@ -238,14 +207,23 @@ export default function DashboardPage() {
                     <Settings className="mr-2 h-4 w-4" />
                     Configure Bots
                   </Button>
+                  
+                  {/* --- POPRAWIONY PRZYCISK ADD TO SERVER --- */}
                   <Button 
                     className="w-full justify-start" 
                     variant="outline" 
-                    disabled={!isActive}
+                    // Usuwamy disabled, bo bot jest darmowy
+                    // disabled={!isActive} 
+                    asChild // Ważne: pozwala na użycie linku wewnątrz
                   >
-                    <Server className="mr-2 h-4 w-4" />
-                    Add to Server
+                    {/* Ten link otwiera zaproszenie bota w nowej karcie */}
+                    <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+                        <Server className="mr-2 h-4 w-4" />
+                        Add to Server
+                    </a>
                   </Button>
+                  {/* ----------------------------------------- */}
+
                   <Button 
                     className="w-full justify-start" 
                     variant="outline"
@@ -253,7 +231,7 @@ export default function DashboardPage() {
                   >
                     <Link href="/pricing">
                         <Zap className="mr-2 h-4 w-4" />
-                        Buy More Bots
+                        Upgrade Plan
                     </Link>
                   </Button>
                 </CardContent>
