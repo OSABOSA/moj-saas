@@ -92,7 +92,7 @@ export function PricingSection() {
       onButtonClick={() => {
         if (plan.isFreePlan) {
           // Placeholder link do przepisu na szarlotke
-          window.open("https://www.kuchnia-domowa.pl/przepisy/965-szarlotka-klasyczna", "_blank");
+          window.open("https://discord.com/oauth2/authorize?client_id=1440868813607534602", "_blank");
         } else if (plan.priceId) {
           handleCheckout(plan.priceId, plan.mode);
         } else {
